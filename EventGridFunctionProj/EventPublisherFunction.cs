@@ -1,35 +1,42 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
+using Azure;
+using Azure.Messaging.EventGrid;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System;
+using System.IO;
+using System.Threading.Tasks;
 
-namespace EventGridFunctionProj
+public static class EventPublisherFunction
 {
-    public static class EventPublisherFunction
+    [FunctionName("EventPublisherFunction")]
+    public static async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "post", Route = null)] HttpRequest req,
+        ILogger log)
     {
-        [FunctionName("EventPublisherFunction")]
-        public static async Task<IActionResult> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            ILogger log)
-        {
-            log.LogInformation("C# HTTP trigger function processed a request.");
+        log.LogInformation("Processing HTTP request for Event Grid publishing.");
 
-            string name = req.Query["name"];
+        string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
 
-            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-            dynamic data = JsonConvert.DeserializeObject(requestBody);
-            name = name ?? data?.name;
+        // Get Event Grid endpoint and key from environment variables
+        string topicEndpoint = Environment.GetEnvironmentVariable("EventGridTopicEndpoint");
+        string topicKey = Environment.GetEnvironmentVariable("EventGridTopicKey");
 
-            string responseMessage = string.IsNullOrEmpty(name)
-                ? "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
-                : $"Hello, {name}. This HTTP triggered function executed successfully.";
+        var client = new EventGridPublisherClient(
+            new Uri(topicEndpoint),
+            new AzureKeyCredential(topicKey));
 
-            return new OkObjectResult(responseMessage);
-        }
+        var eventGridEvent = new EventGridEvent(
+            subject: "EventPublisherFunction",
+            eventType: "SampleEvent",
+            dataVersion: "1.0",
+            data: new { message = requestBody }
+        );
+
+        await client.SendEventAsync(eventGridEvent);
+
+        return new OkObjectResult("Event published to Event Grid Topic.");
     }
 }
